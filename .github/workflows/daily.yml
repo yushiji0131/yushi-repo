@@ -1,0 +1,48 @@
+name: Daily price update
+
+on:
+  schedule:
+    - cron: '17 21 * * *' # 05:17 Beijing time, every day
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ['data/**']
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refresh data
+        # A failed source keeps yesterday's numbers; the site shows the real date.
+        run: node scripts/update.mjs || echo "::warning::update finished with errors, see data/meta.json"
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "data: daily update $(date -u +%F)"
+          git push
+      - name: Assemble site
+        run: mkdir _site && cp -r index.html assets data _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

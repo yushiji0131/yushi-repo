@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>冠表行情 · 劳力士型号与价格查询</title>
+<meta name="description" content="浏览劳力士各系列型号，查看每日更新的二手行情、美国公价与各地区折算参考价，以及系列评测。非官方爱好者站点。">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230f5c3f'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23e9d9a6' stroke-width='2'/%3E%3Cpath d='M16 9v7l4 3' stroke='%23e9d9a6' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#/" aria-label="首页">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="var(--gold)" stroke-width="2"/><path d="M16 9v7l4 3" stroke="var(--gold)" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      <span>冠表行情</span>
+    </a>
+    <label class="search">
+      <span class="sr">搜索型号</span>
+      <input id="q" type="search" placeholder="搜索型号、系列或昵称，如 126610、Daytona、Pepsi" autocomplete="off">
+    </label>
+    <label class="cur">
+      <span class="sr">显示货币</span>
+      <select id="currency"></select>
+    </label>
+  </div>
+</header>
+
+<main id="app" class="wrap" tabindex="-1"><p class="loading">正在加载数据…</p></main>
+
+<footer class="wrap foot">
+  <p id="fresh"></p>
+  <p>本站为个人爱好者项目，与 Rolex SA 无任何关联，Rolex 及各型号名称为其权利人的商标。二手行情为经销商在售标价的统计，不是成交价；各地区价格除标注“已核实”外均为按当日汇率折算的参考值，购买前请以官方渠道为准。</p>
+</footer>
+
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "_comment": "Verified official list prices, keyed by reference then market code (US, CH, EU, UK, JP, HK, CN, SG, AU, CA). Entries here take priority over scraped values. Example: \"126500LN\": {\"US\": {\"price\": 16900, \"source\": \"…\", \"asOf\": \"2026-01\"}, \"CH\": {\"price\": 14500, \"asOf\": \"2026-01\"}}",
+  "126500LN": { "US": { "price": 16900, "source": "2026 年 1 月调价报道（多家媒体一致）", "asOf": "2026-01" } },
+  "127334": { "US": { "price": 16450, "source": "2026 年价格报道", "asOf": "2026-01" } }
+}
