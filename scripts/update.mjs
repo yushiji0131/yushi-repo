@@ -187,7 +187,7 @@ function parseTable(html) {
   const t = /<table class="watchPriceTable[^"]*categoryWatchPriceTable.*?<\/table>/s.exec(html);
   if (!t) return [];
   const rows = [];
-  for (const r of t[0].matchAll(/<tr>(.*?)<\/tr>/gs)) {
+  for (const r of t[0].matchAll(/<tr[^>]*>(.*?)<\/tr>/gs)) {
     const cells = [...r[1].matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((m) => text(m[1]));
     if (cells.length < 3) continue;
     const m = /^([0-9]{3,6}[A-Z]*)\s*(.*)$/i.exec(cells[0]);
@@ -219,6 +219,61 @@ async function fetchTables() {
   return rows;
 }
 
+// ---------- price guide (broad catalogue: dealer ask + buy-back per reference) ----------
+
+function parseGuide(html) {
+  const t = /<table.*?<\/table>/s.exec(html);
+  if (!t) return [];
+  const rows = [];
+  for (const r of t[0].matchAll(/<tr[^>]*>(.*?)<\/tr>/gs)) {
+    const cell = (cls) => {
+      const m = new RegExp(`<td class="${cls}[^"]*">(.*?)<\\/td>`, 's').exec(r[1]);
+      return m ? text(m[1].replace(/<span class="brand-inline">.*?<\/span>/s, '')) : '';
+    };
+    if (!/^rolex$/i.test(cell('brand'))) continue;
+    const m = /^([0-9]{3,6}[A-Z]*)\s*(.*)$/i.exec(cell('reference'));
+    if (!m) continue;
+    const desc = cell('description');
+    const ask = money(cell('buy buyFromBobs')), bid = money(cell('buy sellToBobs'));
+    if (!ask && !bid) continue;
+    rows.push({ ref: m[1].toUpperCase(), variant: m[2], desc, ask, bid });
+  }
+  return rows;
+}
+
+async function fetchGuide() {
+  const html = await get(`${SITE}/watch-prices`);
+  return html ? parseGuide(html) : [];
+}
+
+const FAMILIES = [
+  [/yacht-?\s?master\s?ii/i, 'Yacht-Master II'], [/yacht-?\s?master/i, 'Yacht-Master'],
+  [/gmt[- ]?master\s?ii/i, 'GMT-Master II'], [/gmt[- ]?master/i, 'GMT-Master'],
+  [/deep\s?sea/i, 'Deepsea'], [/sea-?\s?dweller/i, 'Sea-Dweller'], [/sky-?\s?dweller/i, 'Sky-Dweller'],
+  [/land-?\s?dweller/i, 'Land-Dweller'],
+  [/day[- ]?date\s?(ii|2)\b/i, 'Day-Date II'], [/day[- ]?date/i, 'Day-Date'],
+  [/datejust\s?ii\b/i, 'Datejust II'], [/datejust/i, 'Datejust'],
+  [/explorer\s?ii\b/i, 'Explorer II'], [/explorer/i, 'Explorer'],
+  [/submariner/i, 'Submariner'], [/daytona/i, 'Daytona'], [/air-?\s?king/i, 'Air-King'],
+  [/milgauss/i, 'Milgauss'], [/pearlmaster/i, 'Pearlmaster'], [/1908/, '1908'], [/cellin/i, 'Cellini'],
+  [/oyster\s?per/i, 'Oyster Perpetual'], [/oyster\s?date|^date\b/i, 'Date'],
+];
+function guideFamily(desc) {
+  const d = desc.replace(/^(vintage\s+)?rolex\s+/i, '');
+  return (FAMILIES.find(([re]) => re.test(d)) || [null, 'Rolex'])[1];
+}
+function guideMaterial(desc) {
+  const d = desc
+    .replace(/oystersteel/gi, 'Steel')
+    .replace(/\bYG\b/g, 'Yellow Gold').replace(/\bWG\b/g, 'White Gold').replace(/\bRG\b/g, 'Rose Gold')
+    .replace(/everrose/gi, 'Everose');
+  return splitMaterial(d).material;
+}
+
+// Reference generations that are in the current catalogue. A heuristic: the
+// source marks many discontinued models, and that marker always wins.
+const CURRENT_GEN = /^(12[4-8]\d{3}|13[46]\d{3}|22[468]\d{3}|27[0-9]\d{3}|33[6]\d{3}|525\d{2})/;
+
 // ---------- aggregation ----------
 
 const digits = (ref) => (/^\d+/.exec(ref) || [''])[0];
@@ -229,7 +284,7 @@ const mode = (xs) => {
 };
 const uniq = (xs) => [...new Set(xs.filter(Boolean))];
 
-function build(listings, tables, overrides) {
+function build(listings, tables, overrides, guide) {
   const byRef = new Map();
   for (const l of listings) {
     if (!byRef.has(l.ref)) byRef.set(l.ref, []);
@@ -254,6 +309,36 @@ function build(listings, tables, overrides) {
       null
     );
   };
+
+  // Guide rows grouped by reference (dial variants are merged).
+  const guideByRef = new Map();
+  for (const g of guide) {
+    if (!guideByRef.has(g.ref)) guideByRef.set(g.ref, []);
+    guideByRef.get(g.ref).push(g);
+  }
+  const guideKeysByBase = new Map();
+  for (const k of guideByRef.keys()) {
+    if (!guideKeysByBase.has(digits(k))) guideKeysByBase.set(digits(k), []);
+    guideKeysByBase.get(digits(k)).push(k);
+  }
+  const usedGuide = new Set();
+  const guideFor = (ref) => {
+    const keys = guideKeysByBase.get(digits(ref)) || [];
+    const k = keys.includes(ref) ? ref : keys.length === 1 || keys.includes(digits(ref)) ? (keys.includes(digits(ref)) ? digits(ref) : keys[0]) : null;
+    if (!k) return null;
+    usedGuide.add(k);
+    return summarise(guideByRef.get(k));
+  };
+  const summarise = (rows) => {
+    const asks = rows.map((r) => r.ask).filter(Boolean), bids = rows.map((r) => r.bid).filter(Boolean);
+    return {
+      ask: asks.length ? median(asks) : null,
+      bid: bids.length ? median(bids) : null,
+      desc: rows[0].desc,
+      disc: rows.every((r) => /\bDISC\b/i.test(r.desc)),
+    };
+  };
+  const isCurrent = (ref, disc) => CURRENT_GEN.test(ref) && !disc;
 
   const watches = [];
   for (const [ref, ls] of byRef) {
@@ -284,11 +369,44 @@ function build(listings, tables, overrides) {
       retailUS: retail,
       retailSource: retail ? (o.US ? o.US.source || 'manual' : 'bobs-table') : null,
       discontinued: t ? t.discontinued : null,
+      guide: guideFor(ref),
       official: o, // verified local list prices, keyed by market code
       listings: ls.slice(0, 8).map(({ name, price, url, img, dial, year, papers, box, bracelet }) => ({
         name, price, url, img, dial, year, papers, box, bracelet,
       })),
     });
+  }
+  // References in the price guide that have nothing in stock today.
+  for (const [ref, rows] of guideByRef) {
+    if (usedGuide.has(ref)) continue;
+    const g = summarise(rows);
+    if (!g.ask && !g.bid) continue;
+    const t = tableFor(ref);
+    const o = overrides[ref] || {};
+    const price = g.ask || g.bid;
+    let retail = o.US?.price ?? t?.retail ?? null;
+    if (retail && !o.US && (retail > price * 4 || retail < price / 6)) retail = null;
+    watches.push({
+      ref,
+      family: guideFamily(g.desc),
+      material: guideMaterial(g.desc),
+      nickname: '',
+      size: Number((/(\d{2})\s*mm/i.exec(g.desc) || [])[1]) || null,
+      dials: uniq(rows.map((r) => r.variant)).slice(0, 8),
+      years: [null, null],
+      img: null,
+      market: { count: 0, min: null, median: null, max: null },
+      retailUS: retail,
+      retailSource: retail ? (o.US ? o.US.source || 'manual' : 'bobs-table') : null,
+      discontinued: t ? t.discontinued : g.disc ? true : null,
+      guide: g,
+      official: o,
+      listings: [],
+    });
+  }
+  for (const w of watches) {
+    w.current = isCurrent(w.ref, w.discontinued || w.guide?.disc);
+    if (w.guide) delete w.guide.disc;
   }
   watches.sort((a, b) => b.market.count - a.market.count || a.ref.localeCompare(b.ref));
   return watches;
@@ -319,7 +437,7 @@ async function main() {
   try {
     const listings = await fetchListings();
     const prev = await readJson('watches.json', []);
-    const prevCount = prev.reduce((n, w) => n + w.market.count, 0);
+    const prevCount = prev.reduce((n, w) => n + (w.market.count || 0), 0);
     if (listings.length < 100 || listings.length < prevCount * 0.4) {
       throw new Error(`only ${listings.length} listings parsed (previous ${prevCount}); keeping old data`);
     }
@@ -330,13 +448,23 @@ async function main() {
     } else {
       await writeJson('tables.json', tables);
     }
-    const watches = build(listings, tables, overrides);
+    let guide = [];
+    try {
+      guide = await fetchGuide();
+      console.log(`guide: ${guide.length} rows`);
+      if (guide.length) await writeJson('guide.json', guide);
+    } catch (e) {
+      errors.push(`guide: ${e.message}`);
+    }
+    if (!guide.length) guide = await readJson('guide.json', []);
+    const watches = build(listings, tables, overrides, guide);
     await writeJson('watches.json', watches);
 
     const history = await readJson('history.json', {});
     for (const w of watches) {
+      const row = [date, w.market.median ?? w.guide?.ask ?? null, w.market.count, w.market.min];
+      if (row[1] == null) continue;
       const h = (history[w.ref] ||= []);
-      const row = [date, w.market.median, w.market.count, w.market.min];
       if (h.length && h.at(-1)[0] === date) h[h.length - 1] = row;
       else h.push(row);
       if (h.length > HISTORY_DAYS) h.splice(0, h.length - HISTORY_DAYS);

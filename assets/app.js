@@ -13,7 +13,7 @@ const store = {
 const state = {
   watches: [], history: {}, fx: { rates: { USD: 1 } }, meta: {},
   currency: store.get('currency', 'CNY'),
-  q: '', collection: 'all', material: 'all', sort: 'popular', retailOnly: false, shown: 48,
+  q: '', collection: 'all', material: 'all', sort: 'popular', currentOnly: false, stockOnly: false, shown: 48,
 };
 
 // ---------- formatting ----------
@@ -32,7 +32,9 @@ function money(amount, cur = state.currency) {
 }
 const usd = (v) => money(conv(v));
 const pct = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(0) + '%';
-const premium = (w) => (w.retailUS ? ((w.market.median - w.retailUS) / w.retailUS) * 100 : null);
+// Market price: median of today's listings, else the dealer's guide price.
+const px = (w) => w.market.median ?? w.guide?.ask ?? null;
+const premium = (w) => (w.retailUS && px(w) ? ((px(w) - w.retailUS) / w.retailUS) * 100 : null);
 const matZh = (m) => MATERIAL_ZH[m] || m || '';
 const dialZh = (d) => (DIAL_ZH[d] ? `${DIAL_ZH[d]}色` : d);
 
@@ -60,13 +62,14 @@ function filtered() {
   let xs = state.watches.filter((w) => {
     if (state.collection !== 'all' && w.col.id !== state.collection) return false;
     if (state.material !== 'all' && w.material !== state.material) return false;
-    if (state.retailOnly && !w.retailUS) return false;
+    if (state.currentOnly && !w.current) return false;
+    if (state.stockOnly && !w.market.count) return false;
     return terms.every((t) => w.hay.includes(t));
   });
   const by = {
-    popular: (a, b) => b.market.count - a.market.count,
-    low: (a, b) => a.market.median - b.market.median,
-    high: (a, b) => b.market.median - a.market.median,
+    popular: (a, b) => b.market.count - a.market.count || (b.current ? 1 : 0) - (a.current ? 1 : 0),
+    low: (a, b) => (px(a) ?? 1e12) - (px(b) ?? 1e12),
+    high: (a, b) => (px(b) ?? -1) - (px(a) ?? -1),
     premium: (a, b) => (premium(b) ?? -1e9) - (premium(a) ?? -1e9),
     discount: (a, b) => (premium(a) ?? 1e9) - (premium(b) ?? 1e9),
   }[state.sort];
@@ -78,9 +81,9 @@ function card(w) {
     <div class="card-img">${img(w.img, `${w.family} ${w.ref}`)}</div>
     <div class="card-body">
       <div class="card-top"><span class="ref">${esc(w.ref)}</span>${w.nickname ? `<span class="nick">${esc(w.nickname)}</span>` : ''}</div>
-      <div class="fam">${esc(w.family)} · ${esc(matZh(w.material))}${w.size ? ` · ${w.size} mm` : ''}</div>
-      <div class="price">${usd(w.market.median)}<small>二手中位价 · ${w.market.count} 只在售</small></div>
-      <div class="card-foot">${w.retailUS ? `<span class="muted">公价 ${usd(w.retailUS)}</span>${premiumTag(w)}` : `<span class="muted">${w.discontinued ? '已停产' : '暂无公价数据'}</span>`}</div>
+      <div class="fam">${[w.family, matZh(w.material), w.size && `${w.size} mm`, w.current && '现行款'].filter(Boolean).map(esc).join(' · ')}</div>
+      <div class="price">${usd(px(w))}<small>${w.market.count ? `二手中位价 · ${w.market.count} 只在售` : '行情参考价 · 今日无现货'}</small></div>
+      <div class="card-foot">${w.retailUS ? `<span class="muted">公价 ${usd(w.retailUS)}</span>${premiumTag(w)}` : `<span class="muted">${w.discontinued ? '已停产' : w.current ? '暂无公价数据' : ''}</span>`}</div>
     </div></a>`;
 }
 
@@ -97,7 +100,7 @@ function renderList() {
   app.innerHTML = `
     <section class="hero">
       <h1>劳力士型号与行情</h1>
-      <p>${state.watches.length} 个型号、${state.meta.market?.listings ?? '—'} 只在售腕表的二手标价统计，配合美国公价与各地区折算价。数据每日更新。</p>
+      <p>${state.watches.length} 个型号（其中 ${state.watches.filter((w) => w.current).length} 个现行在产款），${state.meta.market?.listings ?? '—'} 只在售腕表的二手标价统计，配合行情参考价、美国公价与各地区折算价。数据每日更新。</p>
     </section>
     <div class="chips" role="group" aria-label="按系列筛选">
       ${chip('all', '全部', state.watches.length)}${cols.map((c) => chip(c.id, c.name, counts[c.id])).join('')}
@@ -108,7 +111,8 @@ function renderList() {
       <label>排序 <select id="sort">
         ${[['popular', '在售数量'], ['low', '价格从低到高'], ['high', '价格从高到低'], ['premium', '溢价最高'], ['discount', '最接近或低于公价']].map(([v, l]) => `<option value="${v}"${state.sort === v ? ' selected' : ''}>${l}</option>`).join('')}
       </select></label>
-      <label class="check"><input type="checkbox" id="retailOnly"${state.retailOnly ? ' checked' : ''}> 只看有公价的型号</label>
+      <label class="check"><input type="checkbox" id="currentOnly"${state.currentOnly ? ' checked' : ''}> 只看现行在产款</label>
+      <label class="check"><input type="checkbox" id="stockOnly"${state.stockOnly ? ' checked' : ''}> 只看今日有现货</label>
       <span class="count">${xs.length} 个型号</span>
     </div>
     ${xs.length ? `<div class="grid">${xs.slice(0, state.shown).map(card).join('')}</div>` : `<p class="empty">没有符合条件的型号。<button class="link" id="reset">清除筛选</button></p>`}
@@ -133,6 +137,7 @@ const proscons = (c) =>
 // ---------- detail view ----------
 
 function rangeBar(w) {
+  if (!w.market.count) return '';
   const { min, median, max } = w.market;
   const lo = Math.min(min, w.retailUS ?? min), hi = Math.max(max, w.retailUS ?? max);
   const span = hi - lo || 1;
@@ -237,17 +242,19 @@ function renderDetail(ref) {
   app.innerHTML = `
     <nav class="crumb"><a href="#/">全部型号</a> / <a href="#/" data-col="${c.id}">${esc(c.name)}</a> / <span>${esc(w.ref)}</span></nav>
     <section class="detail">
-      <div class="detail-img">${img(w.img, `${w.family} ${w.ref}`)}<p class="muted credit">图片为在售实物，来自 Bob's Watches</p></div>
+      <div class="detail-img">${img(w.img, `${w.family} ${w.ref}`)}<p class="muted credit">${w.img ? "图片为在售实物，来自 Bob's Watches" : '今日无现货，暂无实物图'}</p></div>
       <div class="detail-main">
         <h1>${esc(w.family)} <span class="ref">${esc(w.ref)}</span></h1>
-        <p class="sub">${[w.nickname, matZh(w.material), w.size && `${w.size} mm`, w.discontinued ? '已停产' : ''].filter(Boolean).map(esc).join(' · ')}</p>
+        <p class="sub">${[w.nickname, matZh(w.material), w.size && `${w.size} mm`, w.discontinued ? '已停产' : w.current ? '现行在产款' : ''].filter(Boolean).map(esc).join(' · ')}</p>
         <div class="stats">
-          <div><span>二手中位价</span><b>${usd(w.market.median)}</b><small>${w.market.count} 只在售</small></div>
+          <div><span>${w.market.count ? '二手中位价' : '行情参考价'}</span><b>${usd(px(w))}</b><small>${w.market.count ? `${w.market.count} 只在售` : '今日无现货'}</small></div>
           <div><span>美国公价</span><b>${w.retailUS ? usd(w.retailUS) : '—'}</b><small>${w.retailUS ? money(w.retailUS, 'USD') : w.discontinued ? '已停产' : '暂无数据'}</small></div>
           <div><span>相对公价</span><b class="${p == null ? '' : p > 3 ? 'up' : p < -3 ? 'down' : ''}">${p == null ? '—' : pct(p)}</b><small>${p == null ? '' : p > 3 ? '二手更贵' : p < -3 ? '二手更便宜' : '基本持平'}</small></div>
         </div>
         ${rangeBar(w)}
         <dl class="specs">
+          ${w.guide?.ask ? `<div><dt>经销商参考售价</dt><dd>${usd(w.guide.ask)}</dd></div>` : ''}
+          ${w.guide?.bid ? `<div><dt>经销商回收价</dt><dd>${usd(w.guide.bid)}</dd></div>` : ''}
           <div><dt>在售年份</dt><dd>${years}</dd></div>
           <div><dt>表盘</dt><dd>${w.dials.length ? w.dials.map(dialZh).map(esc).join('、') : '—'}</dd></div>
           ${Object.entries(c.specs).map(([k, v]) => `<div><dt>${esc(k)}<i class="muted">（系列现行）</i></dt><dd>${esc(v)}</dd></div>`).join('')}
@@ -258,14 +265,14 @@ function renderDetail(ref) {
     <section class="panel"><h2>价格走势</h2>${historyChart(w.ref)}</section>
     <section class="panel"><h2>各地区公价参考</h2>${worldTable(w)}</section>
 
-    <section class="panel"><h2>在售二手（按价格从低到高）</h2>
+    ${w.listings.length ? `<section class="panel"><h2>在售二手（按价格从低到高）</h2>
       <ul class="listings">${w.listings.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">
         ${img(l.img, l.name)}
         <span class="l-main"><b>${usd(l.price)}</b><span class="muted">${money(l.price, 'USD')}</span></span>
         <span class="l-desc">${[l.year, l.dial && dialZh(l.dial) + '盘', l.bracelet, l.box && l.papers ? '盒证齐全' : l.box ? '有表盒' : l.papers ? '有保卡' : ''].filter(Boolean).map(esc).join(' · ')}</span>
       </a></li>`).join('')}</ul>
       ${w.market.count > w.listings.length ? `<p class="muted note">共 ${w.market.count} 只在售，这里显示最便宜的 ${w.listings.length} 只。</p>` : ''}
-    </section>
+    </section>` : ''}
 
     ${c.review ? `<section class="panel"><h2>系列评测：${esc(c.name)}</h2><p class="lead">${esc(c.tagline)}</p><p>${esc(c.review)}</p>${proscons(c)}</section>` : ''}
     <section class="panel"><h2>延伸阅读</h2><p class="muted">在专业媒体中搜索 ${esc(w.ref)} 的评测与行情：</p>
@@ -293,14 +300,15 @@ app.addEventListener('click', (e) => {
     renderList();
   } else if (e.target.id === 'more') { state.shown += 48; renderList(); }
   else if (e.target.id === 'reset') {
-    Object.assign(state, { q: '', collection: 'all', material: 'all', retailOnly: false });
+    Object.assign(state, { q: '', collection: 'all', material: 'all', currentOnly: false, stockOnly: false });
     $('#q').value = ''; renderList();
   }
 });
 app.addEventListener('change', (e) => {
   if (e.target.id === 'material') state.material = e.target.value;
   else if (e.target.id === 'sort') state.sort = e.target.value;
-  else if (e.target.id === 'retailOnly') state.retailOnly = e.target.checked;
+  else if (e.target.id === 'currentOnly') state.currentOnly = e.target.checked;
+  else if (e.target.id === 'stockOnly') state.stockOnly = e.target.checked;
   else return;
   state.shown = 48; renderList();
 });

@@ -11,6 +11,7 @@
 | 数据 | 来源 | 频率 |
 | --- | --- | --- |
 | 二手行情 | Bob's Watches 公开的在售列表（标价，非成交价） | 每日 |
+| 行情参考价、回收价 | Bob's Watches 的 watch-prices 价格表，用来补全今日无现货的型号 | 每日 |
 | 美国公价 | 同站各系列的型号价格表；`data/official-overrides.json` 中的手工条目优先 | 每日 / 手工 |
 | 其他地区公价 | 默认按当日汇率由美国公价折算，页面上明确标注为“汇率折算”；在 `data/official-overrides.json` 填入核实过的当地公价后显示为“已核实” | 手工 |
 | 汇率 | api.frankfurter.dev（欧洲央行参考汇率） | 每日 |
