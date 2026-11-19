@@ -270,7 +270,10 @@ function build(listings, tables, overrides) {
       ref,
       family: mode(ls.map((l) => l.family)) || 'Rolex',
       material: mode(ls.map((l) => l.material)),
-      nickname: mode(ls.map((l) => l.nickname)),
+      // Only when most listings agree; a stray nickname must not label the reference.
+      nickname: ((n) => (n && ls.filter((l) => l.nickname === n).length * 2 > ls.length ? n : ''))(
+        mode(ls.map((l) => l.nickname)),
+      ),
       size: mode(ls.map((l) => l.size)),
       dials: uniq(ls.map((l) => l.dial)).slice(0, 8),
       years: [Math.min(...ls.map((l) => l.year || 9999)), Math.max(...ls.map((l) => l.year || 0))].map(
